@@ -101,7 +101,7 @@
                             <div><strong>Time:</strong> <span id="popoutEventCreated"></span></div>
                         </small>
                     </div>
-                    {% if user.is_authenticated %}
+                    {% if user.is_staff %}
                     <div class="popout-actions mt-3">
                         <button type="button" class="btn-edit-event" id="btnEditEvent" title="Edit Event">
                             <i class="fas fa-edit"></i> Edit
@@ -222,11 +222,13 @@
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <div class="d-flex flex-column align-items-start">
                                             <span class="fw-bold date-number">{{ day }}</span>
-                                            <!-- Add Event Button -->
+                                            <!-- Add Event Button (Admin only) -->
+                                            {% if user.is_staff %}
                                             <button class="add-event-btn-circle" 
                                                     onclick="showAddEventPopout(this, '{{ year }}-{{ month|stringformat:'02d' }}-{{ day|stringformat:'02d' }}')">
                                                 <i class="fas fa-plus"></i>
                                             </button>
+                                            {% endif %}
                                             <!-- Attendance Button -->
                                             <button class="attendance-btn-circle" 
                                                     onclick="showAttendancePopout(this, '{{ year }}-{{ month|stringformat:'02d' }}-{{ day|stringformat:'02d' }}')">
@@ -1206,6 +1208,17 @@ body {
     font-size: 0.9rem;
 }
 
+.attendance-item input[type="checkbox"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.attendance-item input[type="checkbox"]:disabled + label {
+    opacity: 0.6;
+    cursor: not-allowed;
+    color: #999;
+}
+
 /* Footer Navigation */
 .calendar-footer {
     margin-top: 2rem;
@@ -1750,6 +1763,10 @@ body {
 let currentEventId = null;
 let currentEventData = null;
 
+// User permissions from Django template
+const userIsStaff = {% if user.is_staff %}true{% else %}false{% endif %};
+const currentUsername = "{{ user.username|escapejs }}";
+
 // Make functions globally accessible
 window.editCurrentEvent = editCurrentEvent;
 window.deleteCurrentEvent = deleteCurrentEvent;
@@ -2166,12 +2183,20 @@ async function loadAttendanceData(dateStr) {
         data.students.forEach(student => {
             const item = document.createElement('div');
             item.className = 'attendance-item';
+            
+            // For students, only enable their own checkbox (match by username)
+            const isOwnRecord = userIsStaff || student.name.toLowerCase() === currentUsername.toLowerCase();
+            const disabledAttr = isOwnRecord ? '' : 'disabled';
+            const disabledClass = isOwnRecord ? '' : ' disabled-checkbox';
+            
             item.innerHTML = `
                 <input type="checkbox" 
                        id="student-${student.id}" 
                        ${student.present ? 'checked' : ''}
-                       data-student-id="${student.id}">
-                <label for="student-${student.id}">${student.name}</label>
+                       ${disabledAttr}
+                       data-student-id="${student.id}"
+                       class="attendance-checkbox${disabledClass}">
+                <label for="student-${student.id}">${student.name}${isOwnRecord && !userIsStaff ? ' (You)' : ''}</label>
             `;
             attendanceList.appendChild(item);
         });

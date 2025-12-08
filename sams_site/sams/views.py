@@ -178,15 +178,21 @@ class CalendarView(TemplateView):
         return context
 
 
-class EventCreateView(LoginRequiredMixin, CreateView):
-    """Create a new team event with AJAX support."""
+class EventCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
+    """Create a new team event with AJAX support. Admin only."""
     model = TeamEvent
     fields = ['title', 'description', 'date', 'start_time', 'end_time']
     
+    def test_func(self):
+        # Only admins (staff users) can create events
+        return self.request.user.is_staff
+    
     def post(self, request, *args, **kwargs):
-        # Check authentication for AJAX requests
+        # Check authentication and admin status for AJAX requests
         if not request.user.is_authenticated:
             return JsonResponse({'success': False, 'error': 'Authentication required'}, status=401)
+        if not request.user.is_staff:
+            return JsonResponse({'success': False, 'error': 'Admin access required'}, status=403)
         
         if request.content_type == 'application/json':
             try:
@@ -257,13 +263,13 @@ class EventCreateView(LoginRequiredMixin, CreateView):
 
 
 class EventUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
-    """Update an existing team event with AJAX support."""
+    """Update an existing team event with AJAX support. Admin only."""
     model = TeamEvent
     fields = ['title', 'description', 'date', 'start_time', 'end_time']
     
     def test_func(self):
-        # Allow all authenticated users to edit any event per requirement
-        return True
+        # Only admins (staff users) can edit events
+        return self.request.user.is_staff
     
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -332,8 +338,8 @@ class EventDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     template_name = 'sams/teamevent_confirm_delete.html'
     
     def test_func(self):
-        # Allow all authenticated users to delete any event per requirement
-        return True
+        # Only admins (staff users) can delete events
+        return self.request.user.is_staff
     
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -415,7 +421,7 @@ def attendance_load(request):
 
 
 def attendance_save(request):
-    """Save attendance records for a given date."""
+    """Save attendance records for a given date. Admins can save all, students can save only their own."""
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
     
@@ -432,6 +438,15 @@ def attendance_save(request):
         
         target_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
         
+        # Find student record linked to this user (if exists)
+        user_student = None
+        if not request.user.is_staff:
+            # Try to find student by username match
+            try:
+                user_student = Student.objects.get(name__iexact=request.user.username)
+            except Student.DoesNotExist:
+                return JsonResponse({'error': 'No student record found for your account'}, status=403)
+        
         # Save each attendance record
         saved_count = 0
         for item in attendance_list:
@@ -440,6 +455,10 @@ def attendance_save(request):
             
             if not student_id:
                 continue
+            
+            # If not admin, only allow updating their own attendance
+            if not request.user.is_staff and user_student and int(student_id) != user_student.id:
+                continue  # Skip records that aren't theirs
             
             # Update or create attendance record
             Attendance.objects.update_or_create(
